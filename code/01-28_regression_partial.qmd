@@ -442,7 +442,10 @@ ggplot(reg_dfw,
 options(contrasts = c("contr.sum", "contr.poly"))
 
 # Model fitting
-mod3_quad 
+mod3_quad <- lmer(yield_mgha ~ sr_ksha + 
+                    I(sr_ksha^2) + (1|rep), 
+                  data = reg_dfw
+                    )
 
 # Summary
 summary(mod3_quad)
@@ -451,6 +454,7 @@ summary(mod3_quad)
 
 ## b) Model Assumptions
 ```{r mod3 augmenting}
+
 # Augmenting and adding pearson standardized residuals
 mod3_quad_aug <- augment(mod3_quad) %>%
   mutate(.stdresid = resid(mod3_quad, 
@@ -459,17 +463,20 @@ mod3_quad_aug <- augment(mod3_quad) %>%
 
 
 mod3_quad_aug
+
 ```
 
 ### Within-group errors are iid ~ N(0, var2)
 
 ```{r mod3 Standardized Residuals vs. Fitted}
+
 ggplot(mod3_quad_aug, 
        aes(x = .fitted, 
            y = .stdresid))+
   geom_hline(yintercept = 0, color = "red")+
   geom_point(size = 3, alpha = .7)+
-  geom_smooth(method = "lm")
+  geom_smooth()
+
 ```
 Residuals are looking better now, no pattern.  
 
@@ -517,6 +524,7 @@ Slope and curvature for sr_ksha are highly significant!
 ## d) Final plot
 
 ```{r mod3 final plot}
+
 ggplot(mod3_quad_aug, 
        aes(x = sr_ksha, 
            y = yield_mgha))+
@@ -537,6 +545,7 @@ Solutions:
 -   we can use bootstrap to create confidence intervals around the regression curve
 
 ```{r mod3 better final plot}
+
 # Creating predictions
 nd <- nd %>%
   mutate(mod3_yield_mgha = predict(mod3_quad, 
@@ -550,7 +559,7 @@ mod3_quad_boots <- bootMer(mod3_quad,
   confint() %>%
   as.data.frame() %>%
   rename(mod3_quad_lcl = `2.5 %`,
-         mod3_quad_upl = `97.5 %`)
+         mod3_quad_ucl = `97.5 %`)
 
 
 nd <- nd %>%
@@ -568,7 +577,7 @@ ggplot(reg_dfw,
             color = "forestgreen")+
   geom_ribbon(data = nd, aes(x = sr_ksha, 
                              ymin = mod3_quad_lcl,
-                             ymax = mod3_quad_upl),
+                             ymax = mod3_quad_ucl),
               fill = "gray", 
               alpha = 0.5, 
               inherit.aes = FALSE)
@@ -591,18 +600,33 @@ After that, we can choose the model that best fit our data and use it to extract
 ## a) Model
 
 ```{r mod4 model}
+
 # Changing to sum-to-zero contrast
 options(contrasts = c("contr.sum", "contr.poly"))
 
 # Model fitting
-mod4_linp 
+mod4_linp <- nlme(yield_mgha ~ SSlinp(sr_ksha, 
+                                      a, b, xs),
+                  
+                  data = reg_dfw,
+                  random = list(rep = pdDiag(a+b+xs ~ 1)),
+                  fixed = list(a ~ 1,
+                               b ~ 1,
+                               xs ~ 1),
+                  start = c(a = 0,
+                            b = 0.3,
+                            xs = 100 
+                            )
+                  )
 
 # Summary
 summary(mod4_linp)
+
 ```
 
 ## b) Model Assumptions
 ```{r mod4 augmenting}
+
 # Augmenting and adding pearson standardized residuals
 mod4_linp_aug <- augment(mod4_linp,
                          data = reg_dfw) %>%
@@ -612,17 +636,20 @@ mod4_linp_aug <- augment(mod4_linp,
 
 
 mod4_linp_aug
+
 ```
 
 ### Within-group errors are iid ~ N(0, var2)
 
 ```{r mod4 Standardized Residuals vs. Fitted}
+
 ggplot(mod4_linp_aug, 
        aes(x = .fitted, 
            y = .stdresid))+
   geom_hline(yintercept = 0, color = "red")+
   geom_point(size = 3, alpha = .7)+
-  geom_smooth(method = "lm")
+  geom_smooth()
+
 ```
 Looking good.  
 
@@ -639,12 +666,17 @@ Looking good.
 On this plot, looking for normality.
 
 ```{r mod4 QQ plot for Rep random effect}
-mod4_linp_randeff 
+
+mod4_linp_randeff <- ranef(mod4_linp) %>%
+  as.data.frame()
 
 ggplot(mod4_linp_randeff, 
        aes(sample = estimate))+
   stat_qq()+
-  stat_qq_line() 
+  stat_qq_line() +
+  facet_wrap(~term)
+
+# we don't have enough variance to estimate b and xs random effects.
 
 ```
 b and xs random estimates are so small that seem to be all zero.  
@@ -652,6 +684,7 @@ That's not a problem per se, just a fact around their variability.
 
 ## c) Model summary
 ```{r mod4 ANOVA}
+
 summary(mod4_linp)
 
 ```
@@ -661,6 +694,7 @@ a, b, and xs are highly significant!
 ## d) Final plot
 
 ```{r mod4 final plot}
+
 ggplot(mod4_linp_aug, 
        aes(x = sr_ksha, 
            y = yield_mgha))+
@@ -681,6 +715,7 @@ Solutions:
 -   we can use bootstrap to create confidence intervals around the regression curve
 
 ```{r mod4 better final plot}
+
 # Creating predictions
 nd <- nd %>%
   mutate(mod4_yield_mgha = predict(mod4_linp, 
@@ -701,7 +736,7 @@ mod4_linp_boots <- boot_nlme(mod4_linp,
   confint() %>%
   as.data.frame() %>%
   rename(mod4_linp_lcl = `2.5 %`,
-         mod4_linp_upl = `97.5 %`)
+         mod4_linp_ucl = `97.5 %`)
 
 nd <- nd %>%
   bind_cols(mod4_linp_boots)
@@ -718,25 +753,42 @@ ggplot(reg_dfw,
             color = "forestgreen")+
   geom_ribbon(data = nd, aes(x = sr_ksha, 
                              ymin = mod4_linp_lcl,
-                             ymax = mod4_linp_upl),
+                             ymax = mod4_linp_ucl),
               fill = "gray", 
               alpha = 0.5, 
               inherit.aes = FALSE)
-
-
 
 ```
 
 # 7) Model comparison  
 ## a) Visual comparison
 ```{r comparison plot}
-ggplot(reg_dfw, aes(x = sr_ksha, y = yield_mgha))+
-  geom_point(size = 4, alpha = .6)
 
+ggplot(reg_dfw, aes(x = sr_ksha, y = yield_mgha))+
+  geom_point(size = 4, alpha = .6) +
+  geom_line (data = nd,
+             aes(y= mod1_yield_mgha),
+             color = "forestgreen") +
+  geom_line (data = nd,
+             aes(y= mod2_yield_mgha),
+             color = "blue") +
+  geom_line (data = nd,
+             aes(y= mod3_yield_mgha),
+             color = "purple") +
+  geom_line (data = nd,
+             aes(y= mod4_yield_mgha),
+             color = "orange")
 
 ```
+
+
 ## Table comparison  
 ```{r}
+
+IC_tab(mod1_int,
+       mod2_lin,
+       mod3_quad,
+       mod4_linp)
 
 ```
 Based on the above, model 4 (linear-plateau) had the lowest AIC and thus should be used to find the optimum level of seeding rate.  
@@ -746,6 +798,8 @@ Because our best model was the linear-plateau, let's find its seeding rate that 
 
 ```{r optimum SR}
 
+mod4_linp %>%
+  intervals(which = "fixed")
 
 ```
 Based on the linear-plateau model, the level of seeding rate to optimize corn grain yield in this study was **73.47** thousand seeds/ha.  
@@ -753,18 +807,34 @@ Based on the linear-plateau model, the level of seeding rate to optimize corn gr
 Now let's predict what was the yield at that seeding rate.  
 ```{r yield at optimum SR}
 
-
+predict(mod4_linp,
+        newdata = data.frame(sr_ksha = 73.48),
+        level = 0 #No random effects 
+        )
 ```
+
 At the optimum seeding rate of **73.47** thousand seeds/ha, corn grain yield was **13.45** Mg/ha.
 
 ```{r final plot}
+
 ggplot(reg_dfw, aes(x = sr_ksha, y = yield_mgha))+
   geom_point(size = 4, alpha = .6)+
   geom_line(data = nd, aes(y = mod4_yield_mgha), 
             color = "orange",
-            size = 1.5) 
+            size = 1.5) +
+  geom_segment(x = 73.48,
+               xend = 73.48,
+               y = 0,
+               yend = 13.45
+              ) +
+  geom_segment(x = 73.48,
+               xend = 0,
+               y = 13.45,
+               yend = 13.45
+              )
 
 ```
+
 # 9) Take-home  
 
 -   We use regression when both y and x are **numerical**  
